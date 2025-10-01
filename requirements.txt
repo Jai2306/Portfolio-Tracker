@@ -1,0 +1,9 @@
+streamlit==1.29.0
+pandas==2.1.4
+plotly==5.18.0
+yfinance==0.2.33
+requests==2.31.0
+numpy==1.26.2
+beautifulsoup4==4.12.2
+lxml==4.9.3
+python-dateutil==2.8.2
