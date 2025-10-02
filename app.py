@@ -35,7 +35,7 @@ if 'holdings' not in st.session_state:
                         "date_added": datetime.now().strftime("%Y-%m-%d")
                     })
         except Exception as e:
-            pass  # Silently fail if CSV has issues
+            pass
 
 if 'current_page' not in st.session_state:
     st.session_state.current_page = "Portfolio"
@@ -65,28 +65,26 @@ page = st.sidebar.radio(
     ["Portfolio", "Technical Analysis", "News & Announcements", "Market Sentiment"]
 )
 
-# FIXED: Real API functions using yfinance
+# Real API functions using yfinance
 def validate_ticker(symbol):
     """Validate if ticker exists"""
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info
         
-        # Check if we got valid data
         if 'regularMarketPrice' in info or 'currentPrice' in info or 'previousClose' in info:
             return True
         return False
     except Exception as e:
         return False
 
-@st.cache_data(ttl=60)  # Cache for 1 minute
+@st.cache_data(ttl=60)
 def get_current_price(symbol):
     """Get real current price from Yahoo Finance"""
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info
         
-        # Try multiple price fields
         price = (info.get('regularMarketPrice') or 
                 info.get('currentPrice') or 
                 info.get('previousClose'))
@@ -94,14 +92,12 @@ def get_current_price(symbol):
         if price:
             return float(price)
         
-        # Fallback: try to get from history
         hist = ticker.history(period='1d')
         if not hist.empty:
             return float(hist['Close'].iloc[-1])
         
         return None
     except Exception as e:
-        st.error(f"Error fetching price for {symbol}: {str(e)}")
         return None
 
 def get_pe_ratio(symbol):
@@ -131,9 +127,9 @@ def get_market_cap_category(symbol):
         info = ticker.info
         market_cap = info.get('marketCap', 0)
         
-        if market_cap >= 200000000000:  # 20,000 Cr (Large cap in India)
+        if market_cap >= 200000000000:
             return "Large Cap"
-        elif market_cap >= 50000000000:  # 5,000 Cr (Mid cap)
+        elif market_cap >= 50000000000:
             return "Mid Cap"
         else:
             return "Small Cap"
@@ -190,7 +186,6 @@ if page == "Portfolio":
             try:
                 df = pd.read_csv(uploaded_file)
                 
-                # Validate CSV columns
                 required_columns = ['symbol', 'buy_price', 'quantity']
                 if not all(col in df.columns for col in required_columns):
                     st.error(f"❌ CSV must contain columns: {', '.join(required_columns)}")
@@ -215,14 +210,12 @@ if page == "Portfolio":
                                 status_text.text(f"Validating {symbol}... ({idx+1}/{len(df)})")
                                 progress_bar.progress((idx + 1) / len(df))
                                 
-                                # Check if already exists
                                 existing_symbols = [h['symbol'] for h in st.session_state.holdings]
                                 if symbol in existing_symbols:
                                     errors.append(f"{symbol} - Already exists")
                                     error_count += 1
                                     continue
                                 
-                                # Validate ticker
                                 is_valid = validate_ticker(symbol)
                                 
                                 if is_valid:
@@ -251,7 +244,6 @@ if page == "Portfolio":
                                 st.rerun()
                     
                     with col2:
-                        # Download sample CSV
                         sample_csv = """symbol,buy_price,quantity
 RELIANCE.NS,2400.50,100
 TCS.NS,3500.00,50
@@ -282,12 +274,10 @@ HDFCBANK.NS,1600.00,60"""
         st.write("")
         if st.button("Add Holding", type="primary"):
             if symbol and buy_price > 0 and quantity > 0:
-                # FIXED: Validate ticker before adding
                 with st.spinner(f"Validating {symbol}..."):
                     is_valid = validate_ticker(symbol)
                     
                     if is_valid:
-                        # Check if symbol already exists
                         existing_symbols = [h['symbol'] for h in st.session_state.holdings]
                         if symbol in existing_symbols:
                             st.error(f"❌ {symbol} already exists in your portfolio!")
@@ -307,14 +297,12 @@ HDFCBANK.NS,1600.00,60"""
     if st.session_state.holdings:
         st.subheader("📊 Portfolio Overview")
         
-        # Calculate portfolio metrics
         portfolio_data = []
         total_investment = 0
         total_current_value = 0
         
         with st.spinner("Fetching latest prices..."):
             for holding in st.session_state.holdings:
-                # FIXED: Get REAL current price
                 current_price = get_current_price(holding['symbol'])
                 
                 if current_price is None:
@@ -342,7 +330,6 @@ HDFCBANK.NS,1600.00,60"""
                     "Forward P/E": get_forward_pe(holding['symbol']),
                 })
         
-        # Display metrics
         total_pnl = total_current_value - total_investment
         total_pnl_percent = (total_pnl / total_investment * 100) if total_investment > 0 else 0
         
@@ -356,7 +343,6 @@ HDFCBANK.NS,1600.00,60"""
         with col4:
             st.metric("Holdings", len(st.session_state.holdings))
         
-        # Portfolio table
         if portfolio_data:
             st.dataframe(
                 pd.DataFrame(portfolio_data),
@@ -364,13 +350,11 @@ HDFCBANK.NS,1600.00,60"""
                 hide_index=True
             )
         
-        # Asset Allocation
         st.subheader("📊 Asset Allocation")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Market Cap allocation
             cap_allocation = {}
             for holding in st.session_state.holdings:
                 cap_type = get_market_cap_category(holding['symbol'])
@@ -389,7 +373,6 @@ HDFCBANK.NS,1600.00,60"""
                 st.plotly_chart(fig_cap, use_container_width=True)
         
         with col2:
-            # Holdings by value
             holdings_value = []
             for holding in st.session_state.holdings:
                 current_price = get_current_price(holding['symbol'])
@@ -409,7 +392,6 @@ HDFCBANK.NS,1600.00,60"""
                 )
                 st.plotly_chart(fig_holdings, use_container_width=True)
         
-        # Earnings Calendar
         st.subheader("📅 Upcoming Earnings Calendar")
         
         earnings_data = []
@@ -426,7 +408,6 @@ HDFCBANK.NS,1600.00,60"""
         earnings_df = pd.DataFrame(earnings_data).sort_values("Days Until")
         st.dataframe(earnings_df, use_container_width=True, hide_index=True)
         
-        # Management buttons
         st.subheader("⚙️ Manage Portfolio")
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -434,7 +415,6 @@ HDFCBANK.NS,1600.00,60"""
                 st.cache_data.clear()
                 st.rerun()
         with col2:
-            # Export to CSV
             if st.button("💾 Export to CSV", type="secondary"):
                 export_data = []
                 for holding in st.session_state.holdings:
@@ -474,7 +454,6 @@ elif page == "Technical Analysis":
     if not st.session_state.holdings:
         st.warning("Please add holdings first in the Portfolio page")
     else:
-        # Stock selector
         symbols = [h['symbol'] for h in st.session_state.holdings]
         selected_stock = st.selectbox("Select Stock", symbols)
         
@@ -486,7 +465,6 @@ elif page == "Technical Analysis":
                 distance = current_price - ema_200
                 distance_percent = (distance / ema_200) * 100
                 
-                # Metrics
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Current Price", f"₹{current_price:.2f}")
@@ -498,7 +476,6 @@ elif page == "Technical Analysis":
                     st.metric("Distance (%)", f"{distance_percent:.2f}%", 
                              f"{'Above' if distance >= 0 else 'Below'} EMA")
                 
-                # Price chart with real data
                 st.subheader("📈 Price Chart with 200 EMA")
                 
                 try:
@@ -532,10 +509,75 @@ elif page == "Technical Analysis":
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.error("No historical data available")
                 except Exception as e:
                     st.error(f"Error loading chart: {str(e)}")
             else:
                 st.error("Could not fetch data for this stock")
+        
+        # EMA Analysis Table for All Holdings
+        st.markdown("---")
+        st.subheader("📊 All Holdings - EMA Analysis")
+        
+        with st.spinner("Calculating EMA for all holdings..."):
+            ema_analysis = []
+            for holding in st.session_state.holdings:
+                symbol = holding['symbol']
+                curr_price = get_current_price(symbol)
+                ema_val = get_200_ema(symbol)
+                
+                if curr_price and ema_val:
+                    dist_rupees = curr_price - ema_val
+                    dist_percent = (dist_rupees / ema_val) * 100
+                    pos = "Above EMA" if dist_percent >= 0 else "Below EMA"
+                    
+                    ema_analysis.append({
+                        "Stock": symbol,
+                        "Current Price": f"₹{curr_price:.2f}",
+                        "200 EMA": f"₹{ema_val:.2f}",
+                        "Distance (₹)": f"₹{dist_rupees:.2f}",
+                        "Distance (%)": f"{dist_percent:.2f}%",
+                        "Position": pos
+                    })
+        
+        if ema_analysis:
+            ema_df = pd.DataFrame(ema_analysis)
+            
+            # Sort by Distance (%) in descending order
+            # Extract numeric values for sorting
+            ema_df['Distance_Sort'] = ema_df['Distance (%)'].str.replace('%', '').astype(float)
+            ema_df = ema_df.sort_values('Distance_Sort', ascending=False)
+            ema_df = ema_df.drop('Distance_Sort', axis=1)
+            
+            # Apply color styling to Distance (%)
+            def color_distance_percent(val):
+                try:
+                    num = float(val.replace('%', ''))
+                    if num >= 0:
+                        return 'background-color: rgba(0, 200, 83, 0.3); color: #00c853; font-weight: bold'
+                    else:
+                        return 'background-color: rgba(255, 23, 68, 0.3); color: #ff1744; font-weight: bold'
+                except:
+                    return ''
+            
+            styled_df = ema_df.style.applymap(color_distance_percent, subset=['Distance (%)'])
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            
+            above_ema = len([x for x in ema_analysis if "Above" in x['Position']])
+            below_ema = len([x for x in ema_analysis if "Below" in x['Position']])
+            
+            st.markdown("---")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Above 200 EMA", f"{above_ema} stocks")
+            with col2:
+                st.metric("Below 200 EMA", f"{below_ema} stocks")
+            with col3:
+                bullish_percent = (above_ema / len(ema_analysis) * 100) if ema_analysis else 0
+                st.metric("Portfolio Strength", f"{bullish_percent:.1f}%")
+        else:
+            st.warning("Unable to calculate EMA for holdings")
 
 # ==================== NEWS & ANNOUNCEMENTS PAGE ====================
 elif page == "News & Announcements":
@@ -546,16 +588,14 @@ elif page == "News & Announcements":
     else:
         symbols = [h['symbol'] for h in st.session_state.holdings]
         
-        # Filter options
         col1, col2 = st.columns([3, 1])
         with col1:
             selected_filter = st.selectbox("Filter by Stock", ["All Stocks"] + symbols)
         with col2:
             time_filter = st.selectbox("Time Period", ["Today", "This Week", "This Month"])
         
-        st.info("💡 For real news integration, you can use NewsAPI or similar services")
+        st.info("For real news integration, you can use NewsAPI or similar services")
         
-        # Display company info
         st.subheader("📊 Company Information")
         
         for symbol in symbols:
@@ -585,7 +625,6 @@ elif page == "Market Sentiment":
     st.title("📊 Market Sentiment & Indicators")
     
     try:
-        # Get real Nifty 50 data
         nifty = yf.Ticker("^NSEI")
         nifty_data = nifty.history(period='1d')
         
@@ -608,7 +647,7 @@ elif page == "Market Sentiment":
     except:
         st.warning("Could not fetch market data")
     
-    st.info("💡 For FII/DII flow data, you would need to integrate with NSE/BSE APIs or paid data providers")
+    st.info("For FII/DII flow data, you would need to integrate with NSE/BSE APIs or paid data providers")
 
 # Footer
 st.sidebar.markdown("---")
