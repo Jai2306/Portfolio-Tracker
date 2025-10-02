@@ -58,6 +58,32 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+def format_indian_currency(amount):
+    """Format currency in Indian numbering system"""
+    amount = float(amount)
+    s = f"{amount:,.0f}"
+    # Convert to Indian style (lakhs and crores)
+    if amount >= 10000000:  # 1 crore
+        return f"₹{amount/10000000:.2f} Cr"
+    elif amount >= 100000:  # 1 lakh
+        return f"₹{amount/100000:.2f} L"
+    else:
+        # For smaller amounts, use thousands separator
+        s = str(int(amount))
+        if len(s) <= 3:
+            return f"₹{s}"
+        last3 = s[-3:]
+        rest = s[:-3]
+        formatted = ""
+        while rest:
+            if len(rest) <= 2:
+                formatted = rest + "," + formatted
+                break
+            else:
+                formatted = rest[-2:] + "," + formatted
+                rest = rest[:-2]
+        return f"₹{formatted}{last3}"
+
 # Sidebar Navigation
 st.sidebar.title("📊 Portfolio Dashboard")
 page = st.sidebar.radio(
@@ -321,31 +347,62 @@ HDFCBANK.NS,1600.00,60"""
                     "Symbol": holding['symbol'],
                     "Quantity": holding['quantity'],
                     "Buy Price": f"₹{holding['buy_price']:.2f}",
-                    "Current Price": f"₹{current_price:.2f}",
-                    "Investment": f"₹{investment:,.2f}",
-                    "Current Value": f"₹{current_value:,.2f}",
-                    "P&L": f"₹{pnl:,.2f}",
+                    "Current Price": f"₹{current_price:.0f}",
+                    "Investment": format_indian_currency(investment),
+                    "Current Value": format_indian_currency(current_value),
+                    "P&L": format_indian_currency(pnl),
                     "P&L %": f"{pnl_percent:.2f}%",
-                    "P/E": get_pe_ratio(holding['symbol']),
-                    "Forward P/E": get_forward_pe(holding['symbol']),
+                    "P/E": f"{get_pe_ratio(holding['symbol']):.2f}" if get_pe_ratio(holding['symbol']) else "N/A",
+                    "Forward P/E": f"{get_forward_pe(holding['symbol']):.2f}" if get_forward_pe(holding['symbol']) else "N/A",
                 })
         
         total_pnl = total_current_value - total_investment
         total_pnl_percent = (total_pnl / total_investment * 100) if total_investment > 0 else 0
         
-        col1, col2, col3, col4 = st.columns(4)
+        # Calculate weighted average P/E
+        total_pe_weighted = 0
+        total_weight = 0
+        for holding in st.session_state.holdings:
+            current_price = get_current_price(holding['symbol'])
+            pe = get_pe_ratio(holding['symbol'])
+            if current_price and pe:
+                value = current_price * holding['quantity']
+                total_pe_weighted += pe * value
+                total_weight += value
+        
+        weighted_avg_pe = (total_pe_weighted / total_weight) if total_weight > 0 else 0
+        
+        col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 1, 1.5])
         with col1:
-            st.metric("Total Investment", f"₹{total_investment:,.2f}")
+            st.metric("Total Investment", format_indian_currency(total_investment))
         with col2:
-            st.metric("Current Value", f"₹{total_current_value:,.2f}")
+            st.metric("Current Value", format_indian_currency(total_current_value))
         with col3:
-            st.metric("Total P&L", f"₹{total_pnl:,.2f}", f"{total_pnl_percent:.2f}%")
+            st.metric("Total P&L", format_indian_currency(total_pnl), f"{total_pnl_percent:.2f}%")
         with col4:
             st.metric("Holdings", len(st.session_state.holdings))
+        with col5:
+            st.metric("Weighted Avg P/E", f"{weighted_avg_pe:.2f}" if weighted_avg_pe > 0 else "N/A")
         
         if portfolio_data:
+            # Create DataFrame and add color styling to P&L columns
+            df = pd.DataFrame(portfolio_data)
+            
+            def color_pnl(val):
+                try:
+                    # Remove currency symbols and commas, then convert to float
+                    num = float(val.replace('₹', '').replace(',', '').replace('%', ''))
+                    if num >= 0:
+                        return 'background-color: rgba(0, 200, 83, 0.3); color: #00c853; font-weight: bold'
+                    else:
+                        return 'background-color: rgba(255, 23, 68, 0.3); color: #ff1744; font-weight: bold'
+                except:
+                    return ''
+            
+            styled_df = df.style.applymap(color_pnl, subset=['P&L', 'P&L %'])
+            
             st.dataframe(
-                pd.DataFrame(portfolio_data),
+                styled_df,
                 use_container_width=True,
                 hide_index=True
             )
