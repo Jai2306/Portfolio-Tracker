@@ -286,38 +286,76 @@ HDFCBANK.NS,1600.00,60"""
                 st.error(f"❌ Error reading CSV: {str(e)}")
     
     # Add Holdings Section
-    st.subheader("Add New Holding Manually")
+    st.subheader("Add New Holding / Modify Existing")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        symbol = st.text_input("Stock Symbol (e.g., RELIANCE.NS)", key="symbol_input")
+        # Create dropdown with existing holdings + "Add New" option
+        holding_options = ["➕ Add New Stock"] + [h['symbol'] for h in st.session_state.holdings]
+        selected_option = st.selectbox("Select Action", holding_options, key="action_select")
+        
+        # If existing holding selected, pre-fill values
+        if selected_option != "➕ Add New Stock":
+            selected_holding = next((h for h in st.session_state.holdings if h['symbol'] == selected_option), None)
+            default_symbol = selected_holding['symbol'] if selected_holding else ""
+            default_price = selected_holding['buy_price'] if selected_holding else 0.0
+            default_qty = selected_holding['quantity'] if selected_holding else 1
+            is_modify = True
+        else:
+            default_symbol = ""
+            default_price = 0.0
+            default_qty = 1
+            is_modify = False
+        
+        symbol = st.text_input("Stock Symbol (e.g., RELIANCE.NS)", value=default_symbol, key="symbol_input", disabled=is_modify)
+    
     with col2:
-        buy_price = st.number_input("Buy Price (₹)", min_value=0.0, step=0.01, key="buy_price")
+        buy_price = st.number_input("Buy Price (₹)", value=float(default_price), min_value=0.0, step=0.01, key="buy_price")
     with col3:
-        quantity = st.number_input("Quantity", min_value=1, step=1, key="quantity")
+        quantity = st.number_input("Quantity", value=int(default_qty), min_value=1, step=1, key="quantity")
     with col4:
         st.write("")
         st.write("")
-        if st.button("Add Holding", type="primary"):
-            if symbol and buy_price > 0 and quantity > 0:
-                with st.spinner(f"Validating {symbol}..."):
-                    is_valid = validate_ticker(symbol)
-                    
-                    if is_valid:
-                        existing_symbols = [h['symbol'] for h in st.session_state.holdings]
-                        if symbol in existing_symbols:
-                            st.error(f"❌ {symbol} already exists in your portfolio!")
+        
+        if is_modify:
+            # Update/Delete buttons for existing holdings
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("💾 Update", type="primary", key="update_btn"):
+                    for holding in st.session_state.holdings:
+                        if holding['symbol'] == selected_option:
+                            holding['buy_price'] = buy_price
+                            holding['quantity'] = quantity
+                            break
+                    st.success(f"✅ Updated {selected_option}")
+                    st.rerun()
+            with col_b:
+                if st.button("🗑️ Delete", type="secondary", key="delete_btn"):
+                    st.session_state.holdings = [h for h in st.session_state.holdings if h['symbol'] != selected_option]
+                    st.success(f"✅ Deleted {selected_option}")
+                    st.rerun()
+        else:
+            # Add button for new holdings
+            if st.button("➕ Add Holding", type="primary", key="add_btn"):
+                if symbol and buy_price > 0 and quantity > 0:
+                    with st.spinner(f"Validating {symbol}..."):
+                        is_valid = validate_ticker(symbol)
+                        
+                        if is_valid:
+                            existing_symbols = [h['symbol'] for h in st.session_state.holdings]
+                            if symbol in existing_symbols:
+                                st.error(f"❌ {symbol} already exists in your portfolio!")
+                            else:
+                                st.session_state.holdings.append({
+                                    "symbol": symbol,
+                                    "buy_price": buy_price,
+                                    "quantity": quantity,
+                                    "date_added": datetime.now().strftime("%Y-%m-%d")
+                                })
+                                st.success(f"✅ Added {quantity} shares of {symbol}")
+                                st.rerun()
                         else:
-                            st.session_state.holdings.append({
-                                "symbol": symbol,
-                                "buy_price": buy_price,
-                                "quantity": quantity,
-                                "date_added": datetime.now().strftime("%Y-%m-%d")
-                            })
-                            st.success(f"✅ Added {quantity} shares of {symbol}")
-                            st.rerun()
-                    else:
-                        st.error(f"❌ Invalid ticker symbol: {symbol}. Please check and try again.")
+                            st.error(f"❌ Invalid ticker symbol: {symbol}. Please check and try again.")
     
     # Portfolio Overview
     if st.session_state.holdings:
@@ -391,7 +429,7 @@ HDFCBANK.NS,1600.00,60"""
             def color_pnl(val):
                 try:
                     # Remove currency symbols and commas, then convert to float
-                    num = float(val.replace('₹', '').replace(',', '').replace('%', ''))
+                    num = float(val.replace('₹', '').replace(',', '').replace('%', '').replace(' L', '').replace(' Cr', ''))
                     if num >= 0:
                         return 'background-color: rgba(0, 200, 83, 0.3); color: #00c853; font-weight: bold'
                     else:
@@ -409,9 +447,10 @@ HDFCBANK.NS,1600.00,60"""
         
         st.subheader("📊 Asset Allocation")
         
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns([1, 1])
         
         with col1:
+            st.markdown("**Market Cap Allocation**")
             cap_allocation = {}
             for holding in st.session_state.holdings:
                 cap_type = get_market_cap_category(holding['symbol'])
@@ -424,30 +463,58 @@ HDFCBANK.NS,1600.00,60"""
                 fig_cap = px.pie(
                     values=list(cap_allocation.values()),
                     names=list(cap_allocation.keys()),
-                    title="Market Cap Allocation",
-                    hole=0.4
+                    hole=0.4,
+                    height=350
                 )
+                fig_cap.update_layout(margin=dict(t=20, b=20, l=20, r=20))
                 st.plotly_chart(fig_cap, use_container_width=True)
         
         with col2:
-            holdings_value = []
+            st.markdown("**Sector Allocation**")
+            # Get sector information and calculate allocation
+            sector_data = {}
             for holding in st.session_state.holdings:
-                current_price = get_current_price(holding['symbol'])
-                if current_price:
-                    value = current_price * holding['quantity']
-                    holdings_value.append({
-                        "Symbol": holding['symbol'],
-                        "Value": value
-                    })
+                try:
+                    ticker = yf.Ticker(holding['symbol'])
+                    info = ticker.info
+                    sector = info.get('sector', 'Unknown')
+                    
+                    # Calculate invested value
+                    invested = holding['buy_price'] * holding['quantity']
+                    
+                    # Calculate current value
+                    current_price = get_current_price(holding['symbol'])
+                    current = current_price * holding['quantity'] if current_price else 0
+                    
+                    if sector not in sector_data:
+                        sector_data[sector] = {'invested': 0, 'current': 0, 'stocks': []}
+                    
+                    sector_data[sector]['invested'] += invested
+                    sector_data[sector]['current'] += current
+                    sector_data[sector]['stocks'].append(holding['symbol'])
+                except:
+                    pass
             
-            if holdings_value:
-                fig_holdings = px.bar(
-                    pd.DataFrame(holdings_value),
-                    x="Symbol",
-                    y="Value",
-                    title="Holdings by Value (₹)"
-                )
-                st.plotly_chart(fig_holdings, use_container_width=True)
+            if sector_data:
+                # Calculate percentages
+                sector_table = []
+                for sector, data in sorted(sector_data.items(), key=lambda x: x[1]['current'], reverse=True):
+                    invested_pct = (data['invested'] / total_investment * 100) if total_investment > 0 else 0
+                    current_pct = (data['current'] / total_current_value * 100) if total_current_value > 0 else 0
+                    
+                    sector_table.append({
+                        "Sector": sector,
+                        "Stocks": len(data['stocks']),
+                        "Invested Weight": f"{invested_pct:.1f}%",
+                        "Current Weight": f"{current_pct:.1f}%"
+                    })
+                
+                sector_df = pd.DataFrame(sector_table)
+                # Calculate dynamic height: header (38px) + rows (35px each) + padding
+                table_height = min(350, 38 + (len(sector_table) * 35) + 10)
+                st.dataframe(sector_df, use_container_width=True, hide_index=True, height=table_height)
+            else:
+                st.info("Sector information not available")
         
         st.subheader("📅 Upcoming Earnings Calendar")
         
